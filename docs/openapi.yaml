@@ -1,0 +1,331 @@
+openapi: 3.0.3
+info:
+  title: Secure Messaging System API
+  description: |
+    The complete API overview for the Action/Intention secure messaging microservices ecosystem.
+    This document covers all public-facing endpoints for the Identity, Messaging, Key, and Routing services.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:3000
+    description: Node Identity Service (Local)
+  - url: http://localhost:3001
+    description: Node Messaging Service (Local)
+  - url: http://localhost:8081
+    description: Go Key Service (Local)
+  - url: http://localhost:8082
+    description: Go Routing Service (Local)
+
+tags:
+  - name: Identity Service
+    description: Handles user authentication, session status, and JWT issuance.
+  - name: Messaging Service
+    description: Manages user data, such as the address book.
+  - name: Key Service
+    description: A secure vault for storing and retrieving public keys.
+  - name: Routing Service
+    description: The core message bus for ingesting and retrieving encrypted messages.
+
+paths:
+  # ------------------------------------------
+  # Identity Service Endpoints
+  # ------------------------------------------
+  /api/auth/status:
+    get:
+      tags:
+        - Identity Service
+      summary: Check User Authentication Status
+      description: |
+        Checks the user's current session status via their session cookie. 
+        If valid, returns the user's profile along with a short-lived JWT for use with other microservices.
+      operationId: getAuthStatus
+      responses:
+        '200':
+          description: Authentication status returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthStatusResponse'
+        '401':
+          description: User is not authenticated (no valid session cookie).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/logout:
+    post:
+      tags:
+        - Identity Service
+      summary: Log Out User
+      description: Logs the user out by destroying their server-side session cookie.
+      operationId: logoutUser
+      responses:
+        '200':
+          description: User logged out successfully.
+        '500':
+          description: Internal server error.
+
+  # ------------------------------------------
+  # Messaging Service Endpoints
+  # ------------------------------------------
+  /api/address-book:
+    get:
+      tags:
+        - Messaging Service
+      summary: Get User's Address Book
+      description: Retrieves the contact list for the authenticated user.
+      operationId: getAddressBook
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: Address book retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AddressBookContact'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/address-book/contacts:
+    post:
+      tags:
+        - Messaging Service
+      summary: Add a New Contact
+      description: Adds a new contact to the authenticated user's address book by email.
+      operationId: addContact
+      security:
+        - JWTAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddContactRequest'
+      responses:
+        '201':
+          description: Contact added successfully. Returns the full profile of the added contact.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddressBookContact'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          description: The user with the specified email was not found.
+
+  # ------------------------------------------
+  # Key Service Endpoints
+  # ------------------------------------------
+  /keys/{entityURN}:
+    get:
+      tags:
+        - Key Service
+      summary: Retrieve a Public Key
+      description: Retrieves the public key for a given entity (e.g., user, device) identified by a URN.
+      operationId: getKey
+      parameters:
+        - name: entityURN
+          in: path
+          required: true
+          description: The URN of the entity (e.g., `urn:sm:user:user-123`).
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Public key retrieved successfully.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Key not found for the given URN.
+    post:
+      tags:
+        - Key Service
+      summary: Store a Public Key
+      description: Stores or overwrites the public key for an entity. The authenticated user's ID (from the JWT `sub` claim) must match the entity ID in the URN.
+      operationId: storeKey
+      security:
+        - JWTAuth: []
+      parameters:
+        - name: entityURN
+          in: path
+          required: true
+          description: The URN of the entity (e.g., `urn:sm:user:user-123`).
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Key stored successfully.
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          description: Forbidden. The authenticated user is not authorized to store a key for this URN.
+
+  # ------------------------------------------
+  # Routing Service Endpoints
+  # ------------------------------------------
+  /send:
+    post:
+      tags:
+        - Routing Service
+      summary: Send a Secure Message
+      description: Ingests a secure message envelope for asynchronous processing and routing.
+      operationId: sendMessage
+      security:
+        - JWTAuth: []
+      requestBody:
+        required: true
+        description: A Protobuf-serialized SecureEnvelope message.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecureEnvelope'
+      responses:
+        '202':
+          description: Accepted. The message has been accepted for processing.
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /messages:
+    get:
+      tags:
+        - Routing Service
+      summary: Retrieve Offline Messages
+      description: Retrieves any messages that were stored for the authenticated user while they were offline.
+      operationId: getMessages
+      security:
+        - JWTAuth: []
+      responses:
+        '200':
+          description: Offline messages retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecureEnvelopeList'
+        '204':
+          description: No new messages were found for the user.
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+components:
+  securitySchemes:
+    JWTAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT issued by the Node Identity Service.
+
+  responses:
+    UnauthorizedError:
+      description: Authentication information is missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Unauthorized: Invalid token"
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The user's unique Firestore document ID.
+          example: "firestore-doc-id"
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        alias:
+          type: string
+          example: "UserAlias"
+
+    AuthStatusResponse:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+        user:
+          allOf:
+            - $ref: '#/components/schemas/UserProfile'
+            - type: object
+              properties:
+                token:
+                  type: string
+                  description: A short-lived JWT for accessing other microservices.
+                  example: "a.jwt.string"
+
+    AddressBookContact:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The contact's user ID.
+        email:
+          type: string
+          format: email
+        alias:
+          type: string
+
+    AddContactRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          description: The email of the contact to add.
+
+    SecureEnvelope:
+      type: object
+      description: "Represents a single end-to-end encrypted message."
+      properties:
+        senderId:
+          type: string
+          example: "urn:sm:user:sender-id"
+        recipientId:
+          type: string
+          example: "urn:sm:user:recipient-id"
+        messageId:
+          type: string
+          format: uuid
+        encryptedSymmetricKey:
+          type: string
+          format: byte
+          description: Base64 encoded encrypted symmetric key.
+        encryptedData:
+          type: string
+          format: byte
+          description: Base64 encoded encrypted message payload.
+        signature:
+          type: string
+          format: byte
+          description: Base64 encoded signature.
+
+    SecureEnvelopeList:
+      type: object
+      properties:
+        envelopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecureEnvelope'

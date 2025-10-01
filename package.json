@@ -1,0 +1,29 @@
+{
+  "name": "secure-messaging-platform",
+  "version": "1.0.0",
+  "description": "secure-messaging-openapi",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "docs:build": "redocly build-docs docs/openapi.yaml --output docs/index.html"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/illmade-knight/secure-messaging-platform.git"
+  },
+  "keywords": [
+    "openapi",
+    "overview"
+  ],
+  "author": "tim@tinywideclouds.com",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/illmade-knight/secure-messaging-platform/issues"
+  },
+  "homepage": "https://github.com/illmade-knight/secure-messaging-platform#readme",
+  "devDependencies": {
+    "@redocly/cli": "^2.2.2"
+  }
+}
